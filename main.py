@@ -12,7 +12,7 @@ from matplotlib import colors
 
 def main():
     script_dir = os.path.dirname(__file__)
-    rel_path = "images/3.png"
+    rel_path = "images/vransko2.png"
     abs_file_path = os.path.join(script_dir, rel_path)
     image = imread(abs_file_path)
     #chromaticityGraph(image)
@@ -21,76 +21,45 @@ def main():
 
 def shadowRemoval(image):
     angle = getBestAngle(image)
-    # invariantImage = getInvariantImage(image, 100)
-    # imshow(invariantImage)
-    # show()
     pass
 
 def getBestAngle(image):
-    maxI = 0.95  #maximal pixel intensity
-    minI = 0.05  #maximal pixel intensity
     entropy = []
-    numOfPx = np.shape(image)[0] * np.shape(image)[1]
     numOfAngles = 181
+    step = 1
 
-    # invariantImage1 = getInvariantImage(image, 0)
-    # plotHistogramFromInvrariantImage(invariantImage1)
-    # plotInvariantImage(invariantImage1)
-    # invariantImage2 = getInvariantImage(image, 100)
-    # plotHistogramFromInvrariantImage(invariantImage2)
-    # plotInvariantImage(invariantImage2)
-
-    invariantImage1 = getInvariantImage(image, 126, plot=True)
-    plotHistogramFromInvrariantImage(invariantImage1)
-    plotInvariantImage(invariantImage1)
-
-    for angle in range(0, 181):
-        print("ANGLE > ", str(angle))
-        invariantImage = getInvariantImage(image, angle)
+    for angle in range(0, 181, step):
+        invariantImage, chromaticities = getInvariantImage(image, angle)
         # plotInvariantImage(invariantImage)
         flattened = invariantImage.flatten()
-        flattened = trimmed_percentiles(flattened, 40)
+        flattened = trimmed_percentiles(flattened, 5)
         #print("len:" + str(np.shape(flattened)) + " MIN: " + str(np.amin(flattened)) + "MAX: " + str(np.amax(flattened)))
-        #print(flattened)
-
-        #plotVarianceInvariantImage(invariantImage)
 
         shared_bins = np.histogram_bin_edges(flattened, bins='scott')
-        hist, binedges = np.histogram(flattened, bins=shared_bins, density=True)
-        #numOfPx2 = np.shape(invariantImage)[0] * np.shape(invariantImage)[1]
-
-        #outliers = [x for x in invariantImageFlat if x>=maxI or x<=minI]
-        #inliers = [x for x in invariantImageFlat if x<maxI and x>minI]
-
-        # plt.figure()
-        # plt.title("Grayscale Histogram")
-        # plt.xlabel("grayscale value")
-        # plt.ylabel("pixel count")
-        # plt.plot(binedges[0:-1], hist)
-        # plt.show()
+        #print("shared_bins: ", shared_bins)
+        hist, binedges = np.histogram(flattened, bins='scott', density=True)
 
         # meanValue = np.mean(invariantImageFlat)
         # std = np.std(invariantImageFlat)
-        # print("meanValue ",  meanValue)
-        # print("stdDev ", std)
         # for i in hist[0]:
         #     ent -= i * math.log(abs(i))
-        data = hist
-        data[data == 0] = 0.000001
-        ent = -(data * np.log(np.abs(data))).sum()
+        data = hist/sum(hist)
+        data[data == 0] = 0.0000001
+        ent = -1*np.sum(np.multiply(data, np.log2(data)))
         entropy.append(ent)
-        #print(ent)
-        print("angle: ", angle, "  e: ", ent)
-        #plotVarianceInvariantImage(invariantImage)
-        #plotHistogramFromInvrariantImage(invariantImage)
+        print("angle: ", angle, "  entropy: ", ent)
+
+        #plotHistogramAndVarianceFromInvrariantImage(invariantImage, chromaticities, angle)
 
     bestAngle = entropy.index(min(entropy))
-    print("BEST angle: ", bestAngle, "  e: ", min(entropy))
+    print("BEST angle: ", str(bestAngle*step), "  entropy: ", min(entropy))
     plt.figure()
     plt.title("Entropies")
     plt.plot(entropy)
     plt.show()
-
+    invariantImage, chromaticities = getInvariantImage(image, bestAngle*step)
+    plotHistogramAndVarianceFromInvrariantImage(invariantImage, chromaticities, bestAngle*step)
+    plotInvariantImage(invariantImage)
     pass
 
 def trimmed_percentiles(data, percent):
@@ -98,16 +67,34 @@ def trimmed_percentiles(data, percent):
     trim = int(percent*np.shape(data)[0]/100.0)
     return data[trim:-trim]
 
-def plotHistogramFromInvrariantImage(invariantImage):
-    shared_bins = np.histogram_bin_edges(invariantImage.flatten(), bins='scott')
-    hist, binedges = np.histogram(invariantImage.flatten(), bins=shared_bins)
+def plotHistogramAndVarianceFromInvrariantImage(invariantImage, chromaticities, rho):
+    flattened = invariantImage.flatten()
+    flattened = trimmed_percentiles(flattened, 5)
 
-    plt.figure()
-    plt.title("Grayscale Histogram")
-    plt.xlabel("grayscale value")
-    plt.ylabel("pixel count")
-    plt.plot(binedges[0:-1], hist)
+    figure, ([ax1, ax2], [ax3, ax4]) = plt.subplots(2, 2, sharey=False)
+    figure.suptitle("Angle: "+str(rho))
+
+    # Chromaticities
+    ax1.plot(chromaticities[0], chromaticities[1], 'o', markersize=0.4)
+    if rho == 90:
+        ax1.vlines(0, ymin=-1, ymax=1)
+    else :
+        m1, b1 = math.tan(math.radians(rho)), 0.0  # slope & intercept
+        x = np.linspace(-1, 1, 500)
+        ax1.plot(x, x * m1 + b1)
+
+    # Histogram
+    hist, binedges = np.histogram(flattened, bins='scott')
+    ax2.bar(binedges[:-1], hist, width=binedges[1]-binedges[0])
+
+    # Variance
+    ax3.plot(flattened, len(flattened) * [1], "x", markersize = "1")
+
+    #Image
+    ax4.imshow(invariantImage, vmin=flattened[0], vmax=flattened[-1])
+
     plt.show()
+
 
 def plotInvariantImage(invariantImage):
     # plt.figure()
@@ -117,24 +104,18 @@ def plotInvariantImage(invariantImage):
     imshow(invariantImage)
     show()
 
-def plotVarianceInvariantImage(invariantImage):
-    invariantImage = invariantImage.flatten()
-    plt.figure(num=None, figsize=(8, 6), dpi=80)
-    plt.plot(invariantImage, len(invariantImage) * [1], "x")
-    plt.show()
 
-def getInvariantImage(image, rho, plot= False):
+def getInvariantImage(image, rho):
     chromaticities2D = caluclate2DChromaticitiesFromImage(image)
     cosine = np.cos(np.radians(rho))
     sine = np.sin(np.radians(rho))
 
-    if plot:
-        plot2DChromaticity(chromaticities2D[:, :, 0], chromaticities2D[:, :, 1], rho)
-
     firstCos = np.multiply(chromaticities2D[:, :, 0], cosine)
     secondSin = np.multiply(chromaticities2D[:, :, 1], sine)
     intrinsicImage = np.add(firstCos, secondSin)
-    return intrinsicImage
+
+
+    return intrinsicImage, (chromaticities2D[:, :, 0], chromaticities2D[:, :, 1])
 
 def caluclate2DChromaticitiesFromImage(image):
     log_chromaticies_3D = calculate3DChromaticitiesFromImage(image)
@@ -161,7 +142,7 @@ def plot2DChromaticity(img_r_g, img_b_g, rho):
         plt.vlines(0, ymin=-1, ymax=1)
     else :
         m1, b1 = math.tan(math.radians(rho)), 0.0  # slope & intercept (line 1)
-        print("m1: ", m1)
+        #print("m1: ", m1)
         x = np.linspace(-1, 1, 500)
         plt.plot(x, x * m1 + b1)
 
@@ -235,18 +216,18 @@ def calculate3DChromaticitiesFromImage(image):
     # print(chromaticity_b)
 
     #c chormaticity to r chromaticity
-    # chromaticity_sum = np.add(np.add(chromaticity_r, chromaticity_g), chromaticity_b)
-    # chromaticity_sum[chromaticity_sum == 0] = 10
-    # chromaticity_r = np.divide(chromaticity_r, chromaticity_sum)
-    # chromaticity_g = np.divide(chromaticity_g, chromaticity_sum)
-    # chromaticity_b = np.divide(chromaticity_b, chromaticity_sum)
-    # # print("chromaticity_sum")
-    # # print(chromaticity_sum)
-    # # print("chromaticity_r")
-    # # print(chromaticity_r)
-    # chromaticity_r[chromaticity_r == 0] = 0.0001
-    # chromaticity_g[chromaticity_g == 0] = 0.0001
-    # chromaticity_b[chromaticity_b == 0] = 0.0001
+    chromaticity_sum = np.add(np.add(chromaticity_r, chromaticity_g), chromaticity_b)
+    chromaticity_sum[chromaticity_sum == 0] = 0.00001
+    chromaticity_r = np.divide(chromaticity_r, chromaticity_sum)
+    chromaticity_g = np.divide(chromaticity_g, chromaticity_sum)
+    chromaticity_b = np.divide(chromaticity_b, chromaticity_sum)
+    # print("chromaticity_sum")
+    # print(chromaticity_sum)
+    # print("chromaticity_r")
+    # print(chromaticity_r)
+    chromaticity_r[chromaticity_r == 0] = 0.00001
+    chromaticity_g[chromaticity_g == 0] = 0.00001
+    chromaticity_b[chromaticity_b == 0] = 0.00001
 
     return np.stack((chromaticity_r, chromaticity_g, chromaticity_b), axis=2)  # log chromaticity
 
