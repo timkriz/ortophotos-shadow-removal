@@ -2,6 +2,7 @@ import os
 import numpy as np
 import matplotlib.pyplot as plt
 from skimage.io import imread, imshow, show
+from skimage import filters
 import math
 from numpy import ndarray
 from matplotlib.patches import Rectangle
@@ -12,7 +13,7 @@ from matplotlib import colors
 
 def main():
     script_dir = os.path.dirname(__file__)
-    rel_path = "images/vransko2.png"
+    rel_path = "images/vransko310x310.png"
     abs_file_path = os.path.join(script_dir, rel_path)
     image = imread(abs_file_path)
     #chromaticityGraph(image)
@@ -20,6 +21,9 @@ def main():
     #chromaticityGraph(image)
 
 def shadowRemoval(image):
+    print(image)
+    image = filters.gaussian(image, sigma=1, multichannel=True, preserve_range=True)
+    print(image)
     angle = getBestAngle(image)
     pass
 
