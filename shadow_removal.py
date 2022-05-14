@@ -12,13 +12,14 @@ from matplotlib import cm
 from matplotlib import colors
 import scipy
 import scipy.fftpack
+from scipy.sparse import diags
 
 TRIMMED_PERCENT = 1
 
 
 def main():
     script_dir = os.path.dirname(__file__)
-    rel_path = "images/ball1.png"
+    rel_path = "images/copy3.png"
     abs_file_path = os.path.join(script_dir, rel_path)
     image = imread(abs_file_path)
     # chromaticityGraph(image)
@@ -28,15 +29,378 @@ def main():
 def shadowRemoval(image):
     # image = filters.gaussian(image, sigma=1, multichannel=True, preserve_range=True)  # Gauss filter
     angle = getBestAngle(image)
-    print("ANGLE: ", angle)
     invariantImage, chromaticities = getInvariantImage(image, angle)
-    # plotHistogramAndVarianceFromInvrariantImage(invariantImage, chromaticities, angle)
+
+    flattened = trimmed_percentiles(invariantImage.flatten(), TRIMMED_PERCENT)
+    #invariantImage = np.interp(invariantImage, [flattened[0], flattened[-1]], [0, 1])
+    #invariantImage = np.uint8(invariantImage)
+    print("invariantImage")
+    print(invariantImage)
+
+
+
+
+    ddepth = cv.CV_64F
+    x_der = np.array([[0, 0, 0],
+                        [0, -1 , 1],
+                        [0, 0, 0]])
+    y_der = np.array([[0, 0, 0],
+                      [0, -1, 0],
+                      [0, 1, 0]])
+
+    # INVARIANT
+    sobelx = cv.filter2D(src=invariantImage, ddepth=ddepth, kernel=x_der)
+    sobely = cv.filter2D(src=invariantImage, ddepth=ddepth, kernel=y_der)
+    [magnitude, angle] = imgradient(sobelx, sobely)
+
+
+    # Red
+    imgR = image[:, :, 0]
+    rgX = cv.filter2D(src=imgR, ddepth= ddepth, kernel=x_der)
+    rgY = cv.filter2D(src=imgR, ddepth= ddepth, kernel=y_der)
+    [Rmagnitude, Rangle] = imgradient(rgX, rgY)
+
+    #Green
+    imgG = image[:, : , 1]
+    ggX = cv.filter2D(src=imgG, ddepth= ddepth, kernel=x_der)
+    ggY = cv.filter2D(src=imgG, ddepth= ddepth, kernel=y_der)
+    [Gmagnitude, Gangle] = imgradient(ggX, ggY)
+
+    # Blue
+    imgB = image[:, :, 2]
+    bgX = cv.filter2D(src=imgB, ddepth= ddepth, kernel=x_der)
+    bgY = cv.filter2D(src=imgB, ddepth= ddepth, kernel=y_der)
+    [Bmagnitude, Bangle] = imgradient(bgX, bgY)
+
+
+    # Threshold
+    redX2 = np.copy(rgX)
+    redY2 = np.copy(rgY)
+    redX2[(Rmagnitude > 0) & (magnitude < 0.005)] = 0
+    redY2[(Rmagnitude > 0) & (magnitude < 0.005)] = 0
+
+    greenX2 = np.copy(ggX)
+    greenY2 = np.copy(ggY)
+    greenX2[(Gmagnitude > 0) & (magnitude < 0.005)] = 0
+    greenY2[(Gmagnitude > 0) & (magnitude < 0.005)] = 0
+
+    blueX2 = np.copy(bgX)
+    blueY2 = np.copy(bgY)
+    blueX2[(Bmagnitude > 0) & (magnitude < 0.005)] = 0
+    blueY2[(Bmagnitude > 0) & (magnitude < 0.005)] = 0
+
+
+    kxx = np.array([[0, 0, 0],
+                      [-1, 1, 0],
+                      [0, 0, 0]])
+    kyy = np.array([[0, -1, 0],
+                    [0, 1, 0],
+                    [0, 0, 0]])
+
+    redXX = cv.filter2D(src=redX2, ddepth=-1, kernel=kxx)
+    redYY = cv.filter2D(src=redY2, ddepth=-1, kernel=kyy)
+
+    print("invariant magnitude")
+    print(magnitude)
+    print("redXX")
+    print(redXX)
+
+    greenXX = cv.filter2D(src=greenX2, ddepth=-1, kernel=kxx)
+    greenYY = cv.filter2D(src=greenY2, ddepth=-1, kernel=kyy)
+
+    blueXX = cv.filter2D(src=blueX2, ddepth=-1, kernel=kxx)
+    blueYY = cv.filter2D(src=blueY2, ddepth=-1, kernel=kyy)
+
+    laplacR = redXX + redYY;
+    laplacG = greenXX + greenYY;
+    laplacB = blueXX + blueYY;
+    [width, height] = np.shape(laplacR)
+
+    print("np.shape(laplacR)")
+    print(np.shape(laplacR))
+
+
+
+    r2 = matrixSolving(laplacR, width, height)
+    r = r2#matlab_mat2grey(r2)
+    g = 0#matlab_mat2grey(matrixSolving(laplacG, width, height))
+    b = 0#matlab_mat2grey(matrixSolving(laplacB, width, height))
+
+    print("r2")
+    print(r2)
+    f, ([ax1, ax2], [ax3, ax4]) = plt.subplots(2, 2, sharey=False)
+    ax1.imshow(invariantImage, cmap='gray')
+    ax1.set_title("invariantImage")
+    ax2.imshow(magnitude, cmap='gray')
+    ax2.set_title("magnitude")
+    ax3.imshow(laplacR, cmap='gray')
+    ax3.set_title("laplacR")
+    ax4.imshow(r2, cmap='gray')
+    ax4.set_title("r2")
+    plt.show();
+    r = r.astype('uint8')
+    g = g.astype('uint8')
+    b = b.astype('uint8')
+
+    f, ([ax1, ax2], [ax3, ax4]) = plt.subplots(2, 2, sharey=False)
+    ax1.imshow(r, cmap='gray')
+    ax1.set_title("r")
+    ax2.imshow(g, cmap='gray')
+    ax2.set_title("g")
+    ax3.imshow(b, cmap='gray')
+    ax3.set_title("b")
+    ax4.imshow(r2, cmap='gray')
+    ax4.set_title("r2")
+    plt.show()
+
+
+    [redMean, greenMean, blueMean] = findMeanOfMax(r, g, b);
+    [redMeanMIN, greenMeanMIN, blueMeanMIN] = findMeanOfMin(r, g, b);
+    # r[r > redMean] = 255
+    # g[g > greenMean] = 255
+    # b[b > blueMean] = 255
+    print("redMean", "greenMean", "blueMean")
+    print(redMean, greenMean, blueMean)
+    print("np.amin(r)", "redMean")
+    print(np.amin(r), redMean)
+
+    r = np.interp(r, [redMeanMIN, redMean], [0, 255]).astype('uint8')
+    g = np.interp(g, [greenMeanMIN, greenMean], [0, 255]).astype('uint8')
+    b = np.interp(b, [blueMeanMIN, blueMean], [0, 255]).astype('uint8')
+
+
+    rgbImage = np.stack((r, g, b), axis=2)
+    imshow(rgbImage)
+    show()
+
+    f, ([ax1, ax2], [ax3, ax4]) = plt.subplots(2, 2, sharey=False)
+    ax1.imshow(r, cmap='gray')
+    ax1.set_title("r")
+    ax2.imshow(g, cmap='gray')
+    ax2.set_title("g")
+    ax3.imshow(b, cmap='gray')
+    ax3.set_title("b")
+    ax4.imshow(rgbImage, cmap='gray')
+    ax4.set_title("rgbImage")
+    plt.show()
+
+
+    #plotHistogramAndVarianceFromInvrariantImage(invariantImage, chromaticities, angle)
     # plotInvariantImage(invariantImage)
 
-    shadow_edge_map = shadowEdgeDetection(image, invariantImage)
-    image_recovery(image, shadow_edge_map)
+    #shadow_edge_map = shadowEdgeDetection(image, invariantImage)
+    #image_recovery(image, invariantImage)
 
     pass
+
+def findMeanOfMax(red, green, blue):
+    redTop = np.percentile(red, 80)
+    greenTop = np.percentile(green, 80)
+    blueTop = np.percentile(blue, 80)
+
+    print("redTop","greenTop", "blueTop")
+    print(redTop,greenTop, blueTop)
+    print(red[red > redTop])
+
+    redMean = np.mean(red[red > redTop])
+    greenMean = np.mean(green[green > greenTop])
+    blueMean = np.mean(blue[blue > blueTop])
+
+    return [redMean, greenMean, blueMean]
+
+def findMeanOfMin(red, green, blue):
+    redTop = np.percentile(red, 10)
+    greenTop = np.percentile(green, 10)
+    blueTop = np.percentile(blue, 10)
+
+    print("redbottom","gb", "bb")
+    print(redTop,greenTop, blueTop)
+    print(red[red < redTop])
+
+    redMean = np.mean(red[red < redTop])
+    greenMean = np.mean(green[green < greenTop])
+    blueMean = np.mean(blue[blue < blueTop])
+
+    return [redMean, greenMean, blueMean]
+
+# python function replica of matlab's mat2gray
+def matlab_mat2grey(A):
+    normalized = cv.normalize(A, None, 0, 255, norm_type=cv.NORM_MINMAX)
+    return normalized.astype(np.uint8)
+
+def matrixSolving (fun, width, height):
+    # Grid parameters.
+    nx = width
+    ny = height
+    print("nx: ", nx, "ny: ", ny)
+    xmin, xmax = 0.0, 1.0  # limits in the x direction
+    ymin, ymax = 0.0, 1.0  # limits in the y direction
+    lx = xmax - xmin  # domain length in the x direction
+    ly = ymax - ymin  # domain length in the y direction
+    dx = lx / (nx - 1)  # grid spacing in the x direction
+    dy = ly / (ny - 1)  # grid spacing in the y direction
+
+    b = np.copy(fun)
+    bflat = b[1:-1, 1:-1].flatten('F')
+    p = np.empty((nx, ny))
+
+    A = d2_mat_dirichlet_2d(nx, ny, dx, dy)
+    print(A)
+    Ainv = np.linalg.inv(A)
+
+    pvec = np.reshape(np.dot(Ainv, bflat), (nx - 2, ny - 2), order='F')
+    p[1:-1, 1:-1] = pvec
+
+
+
+
+
+
+
+
+
+
+
+
+
+    # p0 = np.zeros((nx, ny))
+    # pnew = p0.copy()
+    # p = np.empty((nx, ny))
+    # b = fun
+    # for k in range(1, 10000):
+    #     np.copyto(p, pnew)
+    #     pnew[1:-1, 1:-1] = (0.25 * (p[:-2, 1:-1] + p[2:, 1:-1] + p[1:-1, :-2]
+    #                             + p[1:-1, 2:] - b[1:-1, 1:-1] * dx ** 2))
+    # u = np.copy(jacobi(u, b))
+
+
+    # identity = np.identity(ny) * -4
+    # diagonal1 = np.diag(np.ones((ny - 1)), 1)
+    # diagonal2 = np.diag(np.ones((ny - 1)), -1)
+    # a_off = np.identity(ny)
+    # diag_mat = identity + diagonal1 + diagonal2
+    #
+    # A = csr_matrix((ny*nx,ny*nx), dtype = np.double)
+    # ny=ny+1
+    # for i in range(0, nx):
+    #     A[i*ny+1 : i*ny+ny , i*ny+1:i*ny+ny] = diag_mat
+    # # u = np.copy(jacobi(u, b))
+    # #A((i - 1) * (ny) + 1: (i - 1) * (ny) + (ny), (i - 1) * (ny) + 1: (i - 1) * (ny) + (ny)) = diag_mat;
+    #
+    # for i in range(1, nx-1):
+    #     A[(i-1)*ny+1 : (i-1)*ny+ny , i*ny+1:i*ny+ny] = a_off
+    #     A[i*ny+1 : i*ny+ny , (i-1)*ny+1:(i-1)*ny+ny] = a_off
+    #
+    # #A((i-2)*(ny)+1:(i-2)*(ny) + (ny),(i-1)*(ny)+1:(i-1)*(ny) + (ny)) = a_off;
+    # #A((i-1)*(ny)+1:(i-1)*(ny) + (ny),(i-2)*(ny)+1:(i-2)*(ny) + (ny)) = a_off;
+    #
+    # m = np.copy(fun)
+    # m.T.ravel()
+    # print(m)
+    # print(m)
+    #
+    # u = np.zeros((nx+2, ny+2))
+    # b = np.zeros((nx+2, ny+2))
+    # b[1:-1, 1:-1] = fun
+    # for k in range(1, 100):
+    #     u = np.copy(jacobi(u, b))
+
+    # u = np.zeros((nx + 2, ny + 2))
+    # or k in range(1,5):f
+    #     u_k_p_1 = -(dx**2) / 4 * b
+    #
+    #     for i in range(1, nx):
+    #         for j in range(1, ny):
+    #             u_k_p_1[i,j] =  u_k_p_1[i,j] + (u[i + 1, j] + u[i - 1, j] + u[i, j + 1] + u[i, j - 1] - 4 * u[i, j]) / 4
+    #             #b[i, j] = (u[i + 1, j] + u[i - 1, j] + u[i, j + 1] + u[i, j - 1] - 4 * u[i, j]) / dx ** 2
+    #     u = np.copy(u_k_p_1)
+
+    # p0 = np.zeros((nx, ny))
+    # pnew = p0.copy()
+    # fun = fun.astype('float32')
+    # #print(fun.astype('float32'))
+    # currentLoopNum = 0
+    # p = np.empty((nx, ny))
+    # while (currentLoopNum < 4):
+    #     np.copyto(p, pnew)
+    #     pnew[1:-1, 1:-1] = (0.25 * (p[:-2, 1:-1] + p[2:, 1:-1] + p[1:-1, :-2] + p[1:-1, 2:] - fun[1:-1, 1:-1] * dx ** 2))
+    #     currentLoopNum+=1
+    #
+    # f, ([ax1, ax2], [ax3, ax4]) = plt.subplots(2, 2, sharey=False)
+    # ax1.imshow(u, cmap='gray')
+    # ax1.set_title("pnew")
+    # plt.show()
+    #
+    #
+    #     print("iteration" + str(currentLoopNum))
+
+    # identity = np.identity(ny) * -4
+    # diagonal1 = np.diag(np.ones((ny - 1)), 1)
+    # diagonal2 = np.diag(np.ones((ny - 1)), -1)
+    # identity = identity + diagonal1 + diagonal2
+    #print(identity)
+
+    a_off = np.identity(ny)
+
+    return p
+
+def d2_mat_dirichlet_2d(nx, ny, dx, dy):
+    """
+    Constructs the matrix for the centered second-order accurate
+    second-order derivative for Dirichlet boundary conditions in 2D
+
+    Parameters
+    ----------
+    nx : integer
+        number of grid points in the x direction
+    ny : integer
+        number of grid points in the y direction
+    dx : float
+        grid spacing in the x direction
+    dy : float
+        grid spacing in the y direction
+
+    Returns
+    -------
+    d2mat : numpy.ndarray
+        matrix to compute the centered second-order accurate first-order deri-
+        vative with Dirichlet boundary conditions
+    """
+    a = 1.0 / dx**2
+    g = 1.0 / dy**2
+    c = -2.0*a - 2.0*g
+
+    diag_a = a * np.ones((nx-2)*(ny-2)-1)
+    diag_a[nx-3::nx-2] = 0.0
+    diag_g = g * np.ones((nx-2)*(ny-3))
+    diag_c = c * np.ones((nx-2)*(ny-2))
+
+    # We construct a sequence of main diagonal elements,
+    diagonals = [diag_g, diag_a, diag_c, diag_a, diag_g]
+    # and a sequence of positions of the diagonal entries relative to the main
+    # diagonal.
+    offsets = [-(nx-2), -1, 0, 1, nx-2]
+
+    # Call to the diags routine; note that diags return a representation of the
+    # array; to explicitly obtain its ndarray realisation, the call to .toarray()
+    # is needed. Note how the matrix has dimensions (nx-2)*(nx-2).
+    d2mat = diags(diagonals, offsets).toarray()
+
+    # Return the final array
+    return d2mat
+
+def jacobi(xk, b):
+    nx = np.shape(xk)[0]-1
+    ny = np.shape(xk)[1]-1
+    dx = 1 / nx
+    dy = 1 / ny
+
+    xkp1 = np.copy(xk)
+    for i in range(1, nx):
+        for j in range(1, ny):
+            xkp1[i,j] = (b[i,j] - ((xk[i+1,j] + xk[i-1, j]) / dx**2) - ((xk[i, j+1] + xk[i, j-1]) / dy**2)) / (-2 / dx**2 - 2/dy**2)
+
+    return xkp1
 
 
 def getBestAngle(image):
@@ -47,7 +411,7 @@ def getBestAngle(image):
     step = 1
 
     # BEST: rtv.png : approx. 150, grass2.png: 100, ball1: 155
-    for angle in range(160, 161, step):
+    for angle in range(155, 156, step):
         angles.append(angle)
         invariantImage, chromaticities = getInvariantImage(image, angle)
         flattened = invariantImage.flatten()
@@ -240,6 +604,10 @@ def trimmed_percentiles(data, percent):
         trim = int(percent * np.shape(data)[0] / 100.0)
     return data[trim:-trim]
 
+def clip_image(img):
+    flattened = img.flatten()
+    flattened = trimmed_percentiles(flattened, TRIMMED_PERCENT)
+    return np.clip(img, flattened[0], flattened[-1])
 
 def plotHistogramAndVarianceFromInvrariantImage(invariantImage, chromaticities, rho):
     flattened = invariantImage.flatten()
@@ -280,10 +648,10 @@ def plotInvariantImage(invariantImage):
 
 
 def getInvariantImage(image, rho):
-    image = cv.pyrMeanShiftFiltering(src=image, sp=9, sr=50)
+    #image = cv.pyrMeanShiftFiltering(src=image, sp=9, sr=50)
     chromaticities2D = caluclate2DChromaticitiesFromImage(image)
-    cosine = np.cos(np.radians(rho))
-    sine = np.sin(np.radians(rho))
+    cosine = np.cos(0.7)#np.radians(rho))
+    sine = np.sin(0.7)#np.radians(rho))
 
     # (ψ1 cos θ + ψ2 sin θ)
     firstCos = np.multiply(chromaticities2D[:, :, 0], cosine)
@@ -369,17 +737,15 @@ def chromaticityGraph(image):
 
 
 def calculate3DChromaticitiesFromImage(image):
-    image = np.float64(image)
-    r = image[:, :, 0]
-    g = image[:, :, 1]
-    b = image[:, :, 2]
+    r = image[:, :, 0].astype('double') /255
+    g = image[:, :, 1].astype('double') /255
+    b = image[:, :, 2].astype('double') /255
     r[r == 0] = 1
     g[g == 0] = 1
     b[b == 0] = 1
-
     # DIVIDE BY GEOMETRIC MEAN - 3D chromaticity
     geometric_mean = np.multiply(np.multiply(r, g), b) ** (1 / 3)
-    geometric_mean[geometric_mean == 0] = 0
+    #geometric_mean[geometric_mean == 0] = 0
     chromaticity_r = np.log(np.divide(r, geometric_mean))
     chromaticity_g = np.log(np.divide(g, geometric_mean))
     chromaticity_b = np.log(np.divide(b, geometric_mean))
@@ -537,6 +903,10 @@ def IDST(X):
     x = np.real(scipy.fftpack.idst(X,type=1,axis=0))
     return x/(n+1.0)
 
+def imgradient(gX, gY) :
+    magnitude = np.sqrt(gX ** 2.0 + gY ** 2.0)
+    angle = np.arctan2(gY, gX) * (180 / np.pi)
+    return [magnitude, angle]
 if __name__ == "__main__":
     main()
 
